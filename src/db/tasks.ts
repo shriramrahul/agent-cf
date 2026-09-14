@@ -43,7 +43,7 @@ export async function logEvent(env: Env, rawText: string, source: string): Promi
   return id;
 }
 
-async function markEvent(env: Env, eventId: string, status: 'processed' | 'failed'): Promise<void> {
+export async function markEvent(env: Env, eventId: string, status: 'processed' | 'failed'): Promise<void> {
   await db(env).prepare('UPDATE event_log SET status = ? WHERE id = ?').bind(status, eventId).run();
 }
 

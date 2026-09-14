@@ -4,6 +4,20 @@
   "compatibility_date": "2025-09-01",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
+  "kv_namespaces": [
+    {
+      "binding": "SESSIONS",
+      "id": "94f7473b4d1d43ab87303dd0189a4f00",
+      "preview_id": "9bab31d479f94a028166e35eeec63d66"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "agent-cf-db",
+      "database_id": "691ebb61-28d3-4608-abd1-18b758c9dcdf"
+    }
+  ],
   "triggers": {
     "crons": ["0 6 * * *"]
   },

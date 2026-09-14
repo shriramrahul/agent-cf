@@ -3,6 +3,8 @@ export type ChatMessage = {
   content: string | null;
   tool_calls?: unknown[];
   tool_call_id?: string;
+  /** Tool name for `tool`-role messages (pairs the result with its call). */
+  name?: string;
 };
 
 export type CompactMode = 'summarize' | 'clear';

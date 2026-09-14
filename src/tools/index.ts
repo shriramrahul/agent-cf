@@ -1,5 +1,5 @@
 import type { Env } from '../types/client';
-import { listToday, mutateTasks, type TaskOperation, type TaskSlot } from '../db/tasks';
+import { listInbox, listToday, mutateTasks, type TaskOperation, type TaskSlot } from '../db/tasks';
 import { executeJs } from './js-engine';
 
 export type ToolDef = {
@@ -54,6 +54,11 @@ export const toolDefs: ToolDef[] = [
     parameters: { type: 'object', properties: {} },
   },
   {
+    name: 'get_inbox',
+    description: 'Return unscheduled inbox ideas (no scheduled date, not completed).',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
     name: 'set_reminder',
     description: 'Schedule a reminder as a dated task for cron dispatch.',
     parameters: {
@@ -77,6 +82,8 @@ export async function runTool(name: string, args: Record<string, unknown>, env: 
       return mutateTasks(env, args.operations as TaskOperation[]);
     case 'get_today_plan':
       return listToday(env);
+    case 'get_inbox':
+      return listInbox(env);
     case 'set_reminder':
       return mutateTasks(env, [
         {

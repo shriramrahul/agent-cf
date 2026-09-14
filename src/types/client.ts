@@ -6,6 +6,9 @@
 export type Env = {
   SESSIONS?: KVNamespace;
   DB?: D1Database;
+  TELEGRAM_BOT_TOKEN?: string;
+  ALLOWED_USER_ID?: string;
+  API_TOKEN?: string;
   [binding: string]: unknown;
 };
 

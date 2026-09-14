@@ -3,35 +3,36 @@
 
 // Wrangler bindings (KV, D1, secrets, vars). Extend as bindings are added,
 // e.g. `DB: D1Database;`.
-export interface Env {
+export type Env = {
   SESSIONS?: KVNamespace;
+  DB?: D1Database;
   [binding: string]: unknown;
-}
+};
 
 export type ClientType = 'telegram' | 'web' | 'cli' | 'cron';
 
 // Future-proof attachment envelope. Unused by Phase 1 text flows,
 // but prevents a breaking change when media support lands.
-export interface MessageAttachment {
+export type MessageAttachment = {
   kind: 'image' | 'file' | 'audio' | 'video' | 'url';
   url?: string;
   mimeType?: string;
   filename?: string;
   /** Small inline payloads (base64). Prefer `url` for large files. */
   data?: string;
-}
+};
 
 // Optional cross-cutting metadata. Index signature allows new clients
 // to pass extra context without changing the interfaces.
-export interface MessageMetadata {
+export type MessageMetadata = {
   messageId?: string;
   /** ISO-8601 timestamp of when the message was received/created. */
   timestamp?: string;
   locale?: string;
   [key: string]: unknown;
-}
+};
 
-export interface IncomingMessage {
+export type IncomingMessage = {
   sessionId: string;
   userId: string;
   text: string;
@@ -39,9 +40,9 @@ export interface IncomingMessage {
   rawPayload?: unknown;
   attachments?: MessageAttachment[];
   metadata?: MessageMetadata;
-}
+};
 
-export interface OutgoingMessage {
+export type OutgoingMessage = {
   sessionId: string;
   text: string;
   clientType: ClientType;
@@ -55,7 +56,7 @@ export interface OutgoingMessage {
     message: string;
     retryable?: boolean;
   };
-}
+};
 
 export interface ClientAdapter {
   name: string;

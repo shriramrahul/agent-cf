@@ -9,6 +9,7 @@ export type Env = {
   TELEGRAM_BOT_TOKEN?: string;
   ALLOWED_USER_ID?: string;
   API_TOKEN?: string;
+  GEMINI_API_KEY?: string;
   [binding: string]: unknown;
 };
 

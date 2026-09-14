@@ -35,7 +35,7 @@ export class HttpRestAdapter implements ClientAdapter {
     };
   }
 
-  async sendOutgoing(message: OutgoingMessage): Promise<Response> {
+  async sendOutgoing(message: OutgoingMessage, _env?: Env): Promise<Response> {
     if (message.error) {
       return Response.json({ error: message.error, text: message.text }, { status: 500 });
     }

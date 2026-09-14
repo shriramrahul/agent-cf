@@ -2,8 +2,9 @@
 // Telegram / HTTP schemas. Adapters translate to/from these types.
 
 // Wrangler bindings (KV, D1, secrets, vars). Extend as bindings are added,
-// e.g. `SESSIONS: KVNamespace; DB: D1Database;`.
+// e.g. `DB: D1Database;`.
 export interface Env {
+  SESSIONS?: KVNamespace;
   [binding: string]: unknown;
 }
 

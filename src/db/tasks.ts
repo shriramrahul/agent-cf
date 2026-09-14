@@ -200,6 +200,17 @@ export async function listInbox(env: Env): Promise<TaskRow[]> {
   return results ?? [];
 }
 
+/** Everything still open: dated first, inbox last. */
+export async function listOpen(env: Env): Promise<TaskRow[]> {
+  const { results } = await db(env)
+    .prepare(
+      `SELECT * FROM tasks WHERE status NOT IN ('completed', 'cancelled')
+       ORDER BY CASE WHEN scheduled_date IS NULL THEN 1 ELSE 0 END, scheduled_date`,
+    )
+    .all<TaskRow>();
+  return results ?? [];
+}
+
 /** TODAY view: dated for today and not completed, NOW first. */
 export async function listToday(env: Env): Promise<TaskRow[]> {
   const { results } = await db(env)

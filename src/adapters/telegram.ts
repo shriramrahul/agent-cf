@@ -62,4 +62,15 @@ export class TelegramAdapter implements ClientAdapter {
     });
     if (!res.ok) throw new Error(`Telegram send failed: ${res.status}`);
   }
+
+  /** Typing indicator (expires after ~5s, re-fire during long loops). */
+  async sendChatAction(sessionId: string, env: Env): Promise<void> {
+    const token = env.TELEGRAM_BOT_TOKEN as string | undefined;
+    if (!token) return;
+    await fetch(`https://api.telegram.org/bot${token}/sendChatAction`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chat_id: sessionId.replace(/^user_/, ''), action: 'typing' }),
+    }).catch(() => {});
+  }
 }

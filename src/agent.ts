@@ -1,5 +1,5 @@
 import type { Env, IncomingMessage, OutgoingMessage } from './types/client';
-import { SessionManager, type ChatMessage } from './session/session-manager';
+import { SessionManager, dropOrphans, type ChatMessage } from './session/session-manager';
 import { logEvent, markEvent } from './db/tasks';
 import { runTool, toolDefs } from './tools';
 import { GeminiProvider } from './llm/gemini';
@@ -57,7 +57,7 @@ export async function runAgentLoop(incoming: IncomingMessage, env: Env): Promise
       env.SESSIONS as KVNamespace,
       (removed) => summarize(generateText, removed),
     );
-    const history = await sessions.getHistory(incoming.sessionId);
+    const history = dropOrphans(await sessions.getHistory(incoming.sessionId));
     const summary = await sessions.getSummary(incoming.sessionId);
 
     const system = [`${SYSTEM_PROMPT} Today is ${new Date().toISOString().slice(0, 10)}.`];
@@ -100,7 +100,7 @@ export async function runAgentLoop(incoming: IncomingMessage, env: Env): Promise
 
     await sessions.appendMessages(incoming.sessionId, fresh);
     if (eventId) await markEvent(env, eventId, 'processed');
-    return { sessionId: incoming.sessionId, text: reply, clientType: incoming.clientType, format: 'plain', suggestedActions: ['/today', '/inbox', '/all'] };
+    return { sessionId: incoming.sessionId, text: reply, clientType: incoming.clientType, format: 'plain', suggestedActions: ['/today', '/inbox', '/all', '/model'] };
   } catch (err) {
     if (eventId) await markEvent(env, eventId, 'failed').catch(() => {});
     const message = err instanceof Error ? err.message : String(err);

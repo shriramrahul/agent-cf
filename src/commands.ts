@@ -18,19 +18,19 @@ export async function handleCommand(incoming: IncomingMessage, env: Env): Promis
 
   const eventId = await logEvent(env, incoming.text, incoming.clientType).catch((): null => null);
   let text: string;
-  let actions = ['/today', '/inbox', '/all'];
+  let actions = ['/today', '/inbox', '/all', '/model'];
   switch (cmd) {
     case '/today':
       text = format(await listToday(env), 'Nothing scheduled today.');
-      actions = ['/inbox', '/all'];
+      actions = ['/inbox', '/all', '/model'];
       break;
     case '/inbox':
       text = format(await listInbox(env), 'Inbox is empty.');
-      actions = ['/today', '/all'];
+      actions = ['/today', '/all', '/model'];
       break;
     case '/all':
       text = format(await listOpen(env), 'No open tasks.');
-      actions = ['/today', '/inbox'];
+      actions = ['/today', '/inbox', '/model'];
       break;
     case '/model': {
       text = await handleModelSwitch(incoming, env);

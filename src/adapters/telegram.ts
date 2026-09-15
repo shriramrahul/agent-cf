@@ -1,6 +1,7 @@
 import type { ClientAdapter, Env, IncomingMessage, OutgoingMessage } from '../types/client';
 
 type TelegramUpdate = {
+  update_id: number;
   message?: {
     message_id: number;
     date: number; // unix seconds
@@ -33,6 +34,15 @@ export class TelegramAdapter implements ClientAdapter {
 
     // Single-user gate: ignore everyone else, but ack 200 upstream.
     if (!env.ALLOWED_USER_ID || String(fromId) !== env.ALLOWED_USER_ID) return null;
+
+    // Idempotency: Telegram redelivers slow webhooks; replays are no-ops.
+    if (env.SESSIONS) {
+      const seen = await (env.SESSIONS as KVNamespace).get(`tg_update:${update.update_id}`);
+      if (seen) return null;
+      await (env.SESSIONS as KVNamespace).put(`tg_update:${update.update_id}`, '1', {
+        expirationTtl: 60 * 60 * 24,
+      });
+    }
 
     return {
       sessionId: `user_${chatId}`,

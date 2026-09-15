@@ -2,11 +2,29 @@ import { Hono } from 'hono'
 import type { Env, IncomingMessage } from './types/client'
 import { TelegramAdapter } from './adapters/telegram'
 import { HttpRestAdapter } from './adapters/http-api'
+import { logEvent, markEvent } from './db/tasks'
 import { runAgentLoop } from './agent'
 import { handleCommand } from './commands'
 import { handleCron } from './cron'
 
 const app = new Hono<{ Bindings: Env }>()
+
+// Thin request/response line for every hit.
+app.use('*', async (c, next) => {
+  const start = Date.now()
+  await next()
+  console.log(JSON.stringify({ method: c.req.method, path: c.req.path, status: c.res.status, ms: Date.now() - start }))
+})
+
+// Top-level errors: console + failed event row, then a safe 500.
+app.onError(async (err, c) => {
+  console.error(JSON.stringify({ level: 'error', method: c.req.method, path: c.req.path, message: err.message }))
+  try {
+    const id = await logEvent(c.env, `${c.req.method} ${c.req.path}: ${err.message}`, 'worker')
+    await markEvent(c.env, id, 'failed')
+  } catch {}
+  return c.text('Internal error', 500)
+})
 
 app.get('/', (c) => {
   return c.json({ status: 'ok', message: 'Hello from Hono on Workers!' })
@@ -25,6 +43,8 @@ async function processTelegram(adapter: TelegramAdapter, incoming: IncomingMessa
   try {
     const outgoing = await runAgentLoop(incoming, env)
     await adapter.sendOutgoing(outgoing, env)
+  } catch (err) {
+    console.error(JSON.stringify({ level: 'error', path: '/webhook/telegram', message: err instanceof Error ? err.message : String(err) }))
   } finally {
     clearInterval(typing)
   }

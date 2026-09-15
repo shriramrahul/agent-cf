@@ -2,8 +2,9 @@ import type { Env, IncomingMessage, OutgoingMessage } from './types/client';
 import { SessionManager, type ChatMessage } from './session/session-manager';
 import { logEvent, markEvent } from './db/tasks';
 import { runTool, toolDefs } from './tools';
+import { GeminiProvider } from './llm/gemini';
+import { GroqProvider } from './llm/groq';
 
-const MODEL = 'gemma-4-26b-a4b-it';
 const MAX_STEPS = 5;
 
 const SYSTEM_PROMPT = [
@@ -12,97 +13,27 @@ const SYSTEM_PROMPT = [
   'Undated ideas stay in the inbox (omit scheduled_date); only date what is actually scheduled.',
 ].join(' ');
 
-type NativePart = Record<string, unknown>;
-type NativeContent = { role: 'user' | 'model'; parts: NativePart[] };
-type NativeCall = { id?: string; name: string; args: Record<string, unknown> };
-
-/** Our stored history -> native contents. Thought parts are dropped. */
-function toContents(history: ChatMessage[]): NativeContent[] {
-  const out: NativeContent[] = [];
-  for (const m of history) {
-    if (m.role === 'user') {
-      out.push({ role: 'user', parts: [{ text: m.content ?? '' }] });
-    } else if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
-      out.push({
-        role: 'model',
-        parts: (m.tool_calls as NativeCall[]).map((c) => ({
-          functionCall: { name: c.name, args: c.args ?? {}, ...(c.id ? { id: c.id } : {}) },
-        })),
-      });
-    } else if (m.role === 'assistant') {
-      out.push({ role: 'model', parts: [{ text: m.content ?? '' }] });
-    } else if (m.role === 'tool') {
-      out.push({
-        role: 'user',
-        parts: [
-          {
-            functionResponse: {
-              name: m.name ?? 'result',
-              response: { result: tryParse(m.content) },
-              ...(m.tool_call_id ? { id: m.tool_call_id } : {}),
-            },
-          },
-        ],
-      });
-    }
+/** Session /model pref wins; env LLM_PROVIDER is the global default. */
+async function selectProvider(env: Env, sessionId: string) {
+  let name = env.LLM_PROVIDER === 'groq' ? 'groq' : 'gemini';
+  if (env.SESSIONS) {
+    const pref = (await (env.SESSIONS as KVNamespace)
+      .get(`llm:${sessionId}`, 'json')
+      .catch((): null => null)) as { provider?: string } | null;
+    if (pref?.provider === 'groq' || pref?.provider === 'gemini') name = pref.provider;
   }
-  return out;
-}
-
-function tryParse(content: string | null): unknown {
-  if (!content) return null;
-  try {
-    return JSON.parse(content);
-  } catch {
-    return content;
-  }
-}
-
-async function generate(
-  env: Env,
-  system: string,
-  contents: NativeContent[],
-  withTools: boolean,
-): Promise<{ text: string; calls: NativeCall[] }> {
-  const key = env.GEMINI_API_KEY as string | undefined;
-  if (!key) throw new Error('LLM binding missing: GEMINI_API_KEY');
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
-    method: 'POST',
-    headers: { 'x-goog-api-key': key, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      system_instruction: { parts: [{ text: system }] },
-      contents,
-      ...(withTools
-        ? { tools: [{ functionDeclarations: toolDefs.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters })) }] }
-        : {}),
-    }),
-  });
-  if (!res.ok) throw new Error(`LLM request failed: ${res.status}`);
-  const data = (await res.json()) as { candidates: { content: { parts: NativePart[] } }[] };
-  const parts = data.candidates?.[0]?.content?.parts ?? [];
-  const text = parts
-    .filter((p) => typeof p.text === 'string' && !p.thought)
-    .map((p) => p.text as string)
-    .join('')
-    .trim();
-  const calls = parts
-    .filter((p) => p.functionCall)
-    .map((p) => {
-      const fc = p.functionCall as { id?: string; name: string; args: Record<string, unknown> };
-      return { id: fc.id, name: fc.name, args: fc.args ?? {} };
-    });
-  return { text, calls };
+  return name === 'groq' ? new GroqProvider(env) : new GeminiProvider(env);
 }
 
 /** Compaction summarizer: folds overflow messages into the rolling summary. */
-async function summarize(env: Env, removed: ChatMessage[]): Promise<string> {
-  const { text } = await generate(
-    env,
+async function summarize(
+  generate: (system: string, messages: ChatMessage[]) => Promise<string>,
+  removed: ChatMessage[],
+): Promise<string> {
+  return generate(
     'Summarize these chat messages in 5-10 lines, preserving tasks, decisions, and open loops.',
-    [{ role: 'user', parts: [{ text: JSON.stringify(removed) }] }],
-    false,
+    [{ role: 'user', content: JSON.stringify(removed) }],
   );
-  return text;
 }
 
 export async function runAgentLoop(incoming: IncomingMessage, env: Env): Promise<OutgoingMessage> {
@@ -118,34 +49,38 @@ export async function runAgentLoop(incoming: IncomingMessage, env: Env): Promise
   try {
     if (!env.SESSIONS) return fail('NO_SESSION_STORE', 'KV binding missing: SESSIONS', 'Session storage is not configured yet.');
     eventId = await logEvent(env, incoming.text, incoming.clientType);
+
+    const llm = await selectProvider(env, incoming.sessionId);
+    const generateText = async (system: string, messages: ChatMessage[]): Promise<string> =>
+      (await llm.generate(system, messages, [])).text;
     const sessions = new SessionManager(
       env.SESSIONS as KVNamespace,
-      (removed) => summarize(env, removed),
+      (removed) => summarize(generateText, removed),
     );
     const history = await sessions.getHistory(incoming.sessionId);
     const summary = await sessions.getSummary(incoming.sessionId);
 
     const system = [`${SYSTEM_PROMPT} Today is ${new Date().toISOString().slice(0, 10)}.`];
     if (summary) system.push(`Conversation so far: ${summary}`);
+    const systemText = system.join('\n\n');
 
     const userMsg: ChatMessage = { role: 'user', content: incoming.text };
-    const contents = [...toContents(history), { role: 'user', parts: [{ text: incoming.text }] } as NativeContent];
+    const transcript: ChatMessage[] = [...history, userMsg];
     const fresh: ChatMessage[] = [userMsg];
 
     let reply = '';
     for (let step = 0; step < MAX_STEPS; step++) {
-      const { text, calls } = await generate(env, system.join('\n\n'), contents, true);
+      const { text, calls } = await llm.generate(systemText, transcript, toolDefs);
       if (calls.length === 0) {
         reply = text;
-        fresh.push({ role: 'assistant', content: reply });
-        contents.push({ role: 'model', parts: [{ text: reply }] });
+        const msg: ChatMessage = { role: 'assistant', content: reply };
+        transcript.push(msg);
+        fresh.push(msg);
         break;
       }
-      contents.push({
-        role: 'model',
-        parts: calls.map((c) => ({ functionCall: { name: c.name, args: c.args, ...(c.id ? { id: c.id } : {}) } })),
-      });
-      fresh.push({ role: 'assistant', content: text || null, tool_calls: calls });
+      const assistantMsg: ChatMessage = { role: 'assistant', content: text || null, tool_calls: calls };
+      transcript.push(assistantMsg);
+      fresh.push(assistantMsg);
       for (const call of calls) {
         let result: unknown;
         try {
@@ -153,22 +88,19 @@ export async function runAgentLoop(incoming: IncomingMessage, env: Env): Promise
         } catch (err) {
           result = { error: err instanceof Error ? err.message : String(err) };
         }
-        contents.push({
-          role: 'user',
-          parts: [{ functionResponse: { name: call.name, response: { result }, ...(call.id ? { id: call.id } : {}) } }],
-        });
-        fresh.push({ role: 'tool', name: call.name, content: JSON.stringify(result), tool_call_id: call.id });
+        const toolMsg: ChatMessage = { role: 'tool', name: call.name, content: JSON.stringify(result), tool_call_id: call.id };
+        transcript.push(toolMsg);
+        fresh.push(toolMsg);
       }
     }
     if (!reply) {
-      const final = await generate(env, system.join('\n\n'), contents, false);
-      reply = final.text || 'Done.';
+      reply = (await generateText(systemText, transcript)) || 'Done.';
       fresh.push({ role: 'assistant', content: reply });
     }
 
     await sessions.appendMessages(incoming.sessionId, fresh);
     if (eventId) await markEvent(env, eventId, 'processed');
-    return { sessionId: incoming.sessionId, text: reply, clientType: incoming.clientType, format: 'plain' };
+    return { sessionId: incoming.sessionId, text: reply, clientType: incoming.clientType, format: 'plain', suggestedActions: ['/today', '/inbox', '/all'] };
   } catch (err) {
     if (eventId) await markEvent(env, eventId, 'failed').catch(() => {});
     const message = err instanceof Error ? err.message : String(err);

@@ -10,6 +10,9 @@ export type Env = {
   ALLOWED_USER_ID?: string;
   API_TOKEN?: string;
   GEMINI_API_KEY?: string;
+  GROQ_API_KEY?: string;
+  LLM_PROVIDER?: string; // 'gemini' (default) | 'groq'
+  GROQ_MODEL?: string;
   [binding: string]: unknown;
 };
 

@@ -55,6 +55,13 @@ export class TelegramAdapter implements ClientAdapter {
     // (unescaped chars break delivery). Only HTML is passed through.
     const body: Record<string, unknown> = { chat_id: chatId, text: message.text };
     if (message.format === 'html') body.parse_mode = 'HTML';
+    if (message.suggestedActions && message.suggestedActions.length > 0) {
+      body.reply_markup = {
+        keyboard: [message.suggestedActions.slice(0, 4)],
+        resize_keyboard: true,
+        one_time_keyboard: false,
+      };
+    }
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
